@@ -1,0 +1,33 @@
+name:                remote-iserv-server
+version:             1.0.0
+synopsis:            Server library for implementing iserv over the wire
+description:
+            Since version 8.0.1, GHC has support for doing compile-time
+            interpretation (e.g. TemplateHaskell, GHCi) with an external
+            interpreter process known as iserv. The implementation of this
+            process bundled with ghc assumes it is running on the same
+            machine as the ghc process itself. This library provides support
+            for building the server side of an implementation of iserv that
+            runs on a remote machine.
+homepage:            https://github.com/obsidiansystems/remote-iserv
+license:             BSD3
+license-file:        LICENSE
+author:              Shea Levy
+maintainer:          shea@shealevy.com
+copyright:           (c) 2016, Obsidian Systems LLC
+category:            Development
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+library
+  exposed-modules:     GHCi.Remote.Server
+  build-depends:       base >=4.9 && <4.10,
+                       ghci >=8.1 && <8.3,
+                       remote-iserv-common ==1.0.0,
+                       unix >=2.7.2.0 && <2.8,
+                       binary >=0.8.3.0 && <0.9,
+                       bytestring >=0.10.8.1 && <0.11,
+                       filepath >=1.4.1.0 && <1.5,
+                       deepseq >=1.4.2.0 && <1.5
+  default-language:    Haskell2010
