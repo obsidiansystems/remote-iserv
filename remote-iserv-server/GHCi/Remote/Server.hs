@@ -9,6 +9,7 @@ Stability : experimental
 -}
 module GHCi.Remote.Server (serve) where
 
+import Control.Monad
 import Control.Exception
 import System.IO
 
@@ -19,6 +20,10 @@ import Data.Binary
 import Data.ByteString
 
 import System.FilePath
+
+import System.Directory
+
+import System.IO.Temp
 
 import GHCi.Message
 import GHCi.Run
@@ -31,43 +36,46 @@ import GHCi.Remote.LibMessage
 serve :: Pipe -- ^ Connection to the client
       -> FilePath -- ^ Directory where we can store uploaded libraries
       -> IO ()
-serve pipe libdir = loop
+serve pipe libdir = withSystemTempDirectory "iserv-libs" loop
   where
-    loop = do
+    loop tmpdir = do
       Msg msg <- readPipe pipe getMessage
       case msg of
         Shutdown -> return ()
-        RunTH st q ty loc -> wrapRunTH $ runTH pipe st q ty loc
+        RunTH st q ty loc -> wrapRunTH tmpdir $ runTH pipe st q ty loc
         RunModFinalizers st qrefs ->
-          wrapRunTH $ runModFinalizerRefs pipe st qrefs
+          wrapRunTH tmpdir $ runModFinalizerRefs pipe st qrefs
         LoadArchive p -> do
-          let p' = libdir </> p
+          let p' = libdir ++ p
           getLibMessage p'
-          run (LoadArchive p') >>= reply
+          run (LoadArchive p') >>= reply tmpdir
         LoadObj p -> do
-          let p' = libdir </> p
+          let p' = tmpdir ++ p
           getLibMessage p'
-          run (LoadObj p') >>= reply
-        _ -> run msg >>= reply
+          run (LoadObj p') >>= reply tmpdir
+        _ -> run msg >>= reply tmpdir
 
-    reply :: (Binary a) => a -> IO ()
-    reply r = do
+    reply :: (Binary a) => FilePath -> a -> IO ()
+    reply tmpdir r = do
       writePipe pipe $ put r
-      loop
+      loop tmpdir
 
-    wrapRunTH :: forall a. (Binary a, Show a) => IO a -> IO ()
-    wrapRunTH io = do
+    wrapRunTH :: forall a. (Binary a, Show a)
+              => FilePath
+              -> IO a
+              -> IO ()
+    wrapRunTH tmpdir io = do
       r <- try io
       writePipe pipe $ putTHMessage RunTHDone
       case r of
         Left e
           | Just (GHCiQException _ err) <- fromException e  -> do
-              reply (QFail err :: QResult a)
+              reply tmpdir (QFail err :: QResult a)
           | otherwise -> do
               str <- showException e
-              reply (QException str :: QResult a)
+              reply tmpdir (QException str :: QResult a)
         Right a -> do
-          reply (QDone a)
+          reply tmpdir (QDone a)
 
     showException :: SomeException -> IO String
     showException e0 = do
@@ -77,7 +85,11 @@ serve pipe libdir = loop
         Right str -> return str
 
     getLibMessage :: FilePath -> IO ()
-    getLibMessage p = bracket (openFile p WriteMode) hClose loop'
+    getLibMessage p = do
+        createDirectoryIfMissing True $ takeDirectory p
+        needsLib <- not <$> doesFileExist p
+        writePipe pipe $ put needsLib
+        when needsLib $ bracket (openFile p WriteMode) hClose loop'
       where
         loop' file = do
           msg <- readPipe pipe get

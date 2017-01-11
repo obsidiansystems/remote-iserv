@@ -14,6 +14,7 @@ import System.IO
 import System.Environment
 import System.Exit
 import Control.Exception
+import Control.Monad
 
 import Data.Binary
 
@@ -105,17 +106,19 @@ forwardLibMessage :: (Binary a)
                   -> IO a
 forwardLibMessage local remote path msg = do
   writePipe remote $ putMessage msg
-  last <- bracket (openFile path ReadMode) hClose $ \file -> do
-    let sz = 8192 -- Profile?
-    let loop bs = do
-          bs' <- BS.hGet file sz
-          if bs' == BS.empty
-            then return bs
-            else do
-              writePipe remote . put $ Chunk bs
-              loop bs'
-    BS.hGet file sz >>= loop
-  writePipe remote . put $ Done last
+  needsLib <- readPipe remote get
+  when needsLib $ do
+    last <- bracket (openFile path ReadMode) hClose $ \file -> do
+      let sz = 8192 -- Profile?
+      let loop bs = do
+            bs' <- BS.hGet file sz
+            if bs' == BS.empty
+              then return bs
+              else do
+                writePipe remote . put $ Chunk bs
+                loop bs'
+      BS.hGet file sz >>= loop
+    writePipe remote . put $ Done last
   readPipe remote get
 
 forwardTHMessage :: (Binary a)
